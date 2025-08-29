@@ -1,0 +1,42 @@
+name: clinic_web
+description: "Klinik sakura"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  url_launcher: ^6.3.2
+  image_picker: ^1.0.10
+  file_picker: ^8.0.3
+  universal_html: ^2.2.1
+  firebase_core: ^2.24.0
+  firebase_auth: ^4.18.0
+  cloud_firestore: ^4.15.0
+  intl: ^0.18.1
+  pdf: ^3.10.8
+  printing: ^5.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png
+    - assets/images/pp.jpeg
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700

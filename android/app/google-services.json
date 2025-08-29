@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "923483901149",
+    "firebase_url": "https://clinic-web-ffff0-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "clinic-web-ffff0",
+    "storage_bucket": "clinic-web-ffff0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:923483901149:android:dfd67c0c2580a4df0edf34",
+        "android_client_info": {
+          "package_name": "com.example.clinic_web"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIRccuDEHTV-UBoUI4DCDdYgMeACU9jYI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
