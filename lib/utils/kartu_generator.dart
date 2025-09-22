@@ -1,62 +1,97 @@
 // lib/utils/kartu_generator.dart
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import '../models/pasien_model.dart';
 
 class KartuGenerator {
-  static Future<Uint8List> generateKartu(Pasien pasien) async {
+  // Ukuran kartu: 8.5 x 5.5 cm
+  static const PdfPageFormat cardSize = PdfPageFormat(8.5 * PdfPageFormat.cm, 5.5 * PdfPageFormat.cm);
+
+  /// Menghasilkan PDF kartu pasien
+  static Future<Uint8List> _generateKartu(Pasien pasien) async {
     final pdf = pw.Document();
 
-    // Load font bawaan dari paket pdf
-    final fontData = await rootBundle.load('packages/pdf/assets/fonts/Roboto-Regular.ttf');
-    final boldFontData = await rootBundle.load('packages/pdf/assets/fonts/Roboto-Bold.ttf');
-
-    final font = pw.Font.ttf(fontData);
-    final boldFont = pw.Font.ttf(boldFontData);
+    // Load font
+    final font = await PdfGoogleFonts.openSansRegular();
+    final boldFont = await PdfGoogleFonts.openSansBold();
 
     // Load logo
-    final logoImage = await rootBundle.load('assets/images/logo.png');
-    final imageLogo = pw.MemoryImage(logoImage.buffer.asUint8List());
+    final logoData = await rootBundle.load('assets/images/logo.png');
+    final image = pw.MemoryImage(logoData.buffer.asUint8List());
 
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(8.5 * PdfPageFormat.cm, 5.5 * PdfPageFormat.cm),
-        margin: pw.EdgeInsets.all(10),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            // Logo dan Nama Klinik
-            pw.Row(
-              children: [
-                pw.Container(
-                  width: 30,
-                  height: 30,
-                  child: pw.Image(imageLogo, fit: pw.BoxFit.contain),
+        pageFormat: cardSize,
+        margin: pw.EdgeInsets.all(12),
+        build: (context) => pw.Container(
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(width: 1, color: PdfColors.grey),
+            borderRadius: pw.BorderRadius.circular(10),
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Header
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#FF8DAA'),
                 ),
-                pw.SizedBox(width: 8),
-                pw.Expanded(
-                  child: pw.Text(
-                    'Sakura Medical Center',
-                    style: pw.TextStyle(fontSize: 10, font: boldFont, color: PdfColors.grey),
-                  ),
+                child: pw.Row(
+                  children: [
+                    pw.Image(image, width: 30, height: 30),
+                    pw.SizedBox(width: 8),
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Klinik Pratama', style: pw.TextStyle(font: boldFont, fontSize: 9, color: PdfColors.white)),
+                          pw.Text('Sakura Medical Center', style: pw.TextStyle(font: boldFont, fontSize: 9, color: PdfColors.white)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            pw.Divider(color: PdfColors.grey, thickness: 0.5, height: 10),
-            pw.Text('KARTU PASIEN', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, font: boldFont)),
-            pw.SizedBox(height: 8),
-            _buildRow('Nama', pasien.namaLengkap, boldFont, font),
-            _buildRow('RM', pasien.nomorRekamMedis, boldFont, font),
-            _buildRow('Gol. Darah', pasien.golonganDarah, boldFont, font),
-            _buildRow('JK', pasien.jenisKelamin, boldFont, font),
-            _buildRow('Umur', pasien.umur, boldFont, font),
-            _buildRow('No. Telp', pasien.noTelepon, boldFont, font),
-            pw.Spacer(),
-            pw.Text('Terima kasih atas kepercayaan Anda', style: pw.TextStyle(fontSize: 8, font: font, color: PdfColors.grey)),
-          ],
+              ),
+
+              pw.SizedBox(height: 10),
+
+              // Data Pasien
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 12),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    _buildField('Nama', pasien.namaLengkap, boldFont, font),
+                    _buildField('RM', pasien.nomorRekamMedis, boldFont, font),
+                    _buildField('Alamat', pasien.alamat ?? '-', boldFont, font), // ✅ Ganti Gol. Darah -> Alamat
+                    _buildField('JK', pasien.jenisKelamin, boldFont, font),
+                    _buildField('Umur', '${pasien.umur} tahun', boldFont, font),
+                    _buildField('No. Telp', pasien.noTelepon, boldFont, font),
+                  ],
+                ),
+              ),
+
+              pw.Spacer(),
+
+              // Footer
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(vertical: 6),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#FFB2D0'),
+                ),
+                child: pw.Text(
+                  'Terdaftar: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+                  style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.white),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -64,20 +99,25 @@ class KartuGenerator {
     return pdf.save();
   }
 
-  static pw.Widget _buildRow(String label, String value, pw.Font bold, pw.Font normal) {
-    return pw.Row(
-      children: [
-        pw.Expanded(flex: 2, child: pw.Text('$label:', style: pw.TextStyle(font: bold, fontSize: 10))),
-        pw.Expanded(flex: 3, child: pw.Text(value, style: pw.TextStyle(font: normal, fontSize: 10))),
-      ],
-    );
+  /// Cetak kartu
+  static Future<void> printKartu(Pasien pasien) async {
+    try {
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => await _generateKartu(pasien),
+      );
+    } catch (e) {
+      print("Gagal cetak: $e");
+    }
   }
 
-  static Future<void> printKartu(Pasien pasien) async {
-    final pdfData = await generateKartu(pasien);
-    await Printing.layoutPdf(
-      onLayout: (_) => pdfData,
-      format: const PdfPageFormat(8.5 * PdfPageFormat.cm, 5.5 * PdfPageFormat.cm), // ✅ Ganti optionsBuilder → format
+  static pw.Widget _buildField(String label, String value, pw.Font bold, pw.Font normal) {
+    return pw.Row(
+      children: [
+        pw.Text('$label: ', style: pw.TextStyle(font: bold, fontSize: 9)),
+        pw.Expanded(
+          child: pw.Text(value, style: pw.TextStyle(font: normal, fontSize: 9)),
+        ),
+      ],
     );
   }
 }

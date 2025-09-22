@@ -1,14 +1,14 @@
 // lib/views/menu_resepsionis_page.dart
 // ignore_for_file: use_build_context_synchronously
-// ignore: deprecated_member_use
-import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:clinic_web/utils/kartu_generator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase;
 import 'package:flutter/material.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
+import 'package:universal_html/html.dart' as html;
 import '../models/pasien_model.dart';
 import 'login_page.dart';
 
@@ -24,7 +24,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
   bool _isSidebarCollapsed = false;
   String? _hoveredItem;
   final Color menuColor = Colors.white;
-  String _currentView = 'Daftar Pasien'; // 'Daftar Pasien', 'Anamnesa Awal'
+  String _currentView = 'Daftar Pasien'; // 'Daftar Pasien', 'Anamnesa Awal', 'Laporan'
 
   // ✅ Profil User
   Uint8List? _profileImage;
@@ -37,8 +37,8 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
   final TextEditingController _noTeleponController = TextEditingController();
   final TextEditingController _alergiObatController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _alamatController = TextEditingController();
 
-  String? _golonganDarah;
   String? _jenisKelamin;
   String? _status;
   String _searchQuery = '';
@@ -52,15 +52,24 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
   final TextEditingController _suhuController = TextEditingController();
   final TextEditingController _tinggiController = TextEditingController();
   final TextEditingController _beratController = TextEditingController();
+  final TextEditingController _keluhanController = TextEditingController();
+  final TextEditingController _tanggalKunjunganController = TextEditingController();
 
   List<Pasien> _daftarPasien = [];
+
+  // ✅ FIX: Variabel ini HARUS berada di sini (level state), bukan lokal
   String? _selectedPasienId;
+
+  // ✅ Laporan
+  DateTime _filterDate = DateTime.now();
+  String _filterType = 'Harian';
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _loadDaftarPasien();
+    _tanggalKunjunganController.text = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
   }
 
   @override
@@ -76,10 +85,12 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     _suhuController.dispose();
     _tinggiController.dispose();
     _beratController.dispose();
+    _keluhanController.dispose();
+    _tanggalKunjunganController.dispose();
+    _alamatController.dispose();
     super.dispose();
   }
 
-  // ✅ Load Data User
   Future<void> _loadUserData() async {
     final user = firebase.FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -89,7 +100,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
         setState(() {
           _userName = data?['nama'] ?? 'Resepsionis';
           final imageBytes = data?['profileImage'];
-          if (imageBytes is List<dynamic>) {
+          if (imageBytes is List) {
             _profileImage = Uint8List.fromList(imageBytes.map((e) => e as int).toList());
           }
         });
@@ -100,7 +111,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     });
   }
 
-  // ✅ Load Daftar Pasien (untuk anamnesa & search)
   Future<void> _loadDaftarPasien() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('pasien').get();
@@ -116,7 +126,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     }
   }
 
-  // ✅ Upload Foto Profil
   Future<void> _uploadImage() async {
     final input = html.FileUploadInputElement()..accept = 'image/*'..click();
     input.onChange.listen((event) {
@@ -138,7 +147,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     });
   }
 
-  // ✅ Generate Nomor Rekam Medis
   String _generateNomorRekamMedis() {
     final now = DateTime.now();
     final jam = now.hour.toString().padLeft(2, '0');
@@ -147,7 +155,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     return 'RM-$jam$menit$detik';
   }
 
-  // ✅ Tambah Pasien + Langsung Cetak
   void _showAddPasienForm() {
     final contextLocal = context;
     final nomorRekamMedis = _generateNomorRekamMedis();
@@ -155,7 +162,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     _tanggalLahirController.clear();
     _noTeleponController.clear();
     _alergiObatController.clear();
-    _golonganDarah = null;
+    _alamatController.clear();
     _jenisKelamin = null;
     _status = null;
 
@@ -187,14 +194,13 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _golonganDarah,
-                  hint: const Text("Pilih Golongan Darah"),
-                  decoration: const InputDecoration(border: OutlineInputBorder()),
-                  items: ["A-", "A+", "B-", "B+", "AB+", "AB-", "O+", "O-"].map((e) {
-                    return DropdownMenuItem(value: e, child: Text(e));
-                  }).toList(),
-                  onChanged: (value) => setState(() => _golonganDarah = value),
+                TextField(
+                  controller: _alamatController,
+                  decoration: const InputDecoration(
+                    labelText: "Alamat",
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -216,16 +222,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                     hintText: "Contoh: 25",
                   ),
                   keyboardType: TextInputType.number,
-                  onChanged: (value) {
-                    if (value.isNotEmpty) {
-                      final age = int.tryParse(value);
-                      if (age != null && (age < 1 || age > 120)) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Umur harus antara 1 dan 120 tahun")),
-                        );
-                      }
-                    }
-                  },
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -269,40 +265,34 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
               onPressed: () async {
                 final nama = _namaController.text.trim();
-                final noTelepon = _noTeleponController.text.trim();
                 final umur = _tanggalLahirController.text.trim();
-                if (nama.isEmpty || noTelepon.isEmpty || _golonganDarah == null || _jenisKelamin == null ||
-                    _status == null || umur.isEmpty) {
+                if (nama.isEmpty || _jenisKelamin == null || umur.isEmpty || _status == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Semua field wajib diisi, kecuali Alergi Obat")),
+                    const SnackBar(content: Text("Nama, Jenis Kelamin, Umur, dan Status wajib diisi")),
                   );
                   return;
                 }
-
                 final newPasien = Pasien(
                   id: '',
                   nomorRekamMedis: nomorRekamMedis,
                   namaLengkap: nama,
-                  golonganDarah: _golonganDarah!,
+                  alamat: _alamatController.text.trim(),
                   jenisKelamin: _jenisKelamin!,
                   umur: umur,
-                  noTelepon: noTelepon,
+                  noTelepon: _noTeleponController.text.trim(),
                   status: _status!,
                   alergiObat: _alergiObatController.text.isEmpty ? null : _alergiObatController.text,
                 );
-
                 try {
                   final docRef = await FirebaseFirestore.instance.collection('pasien').add(newPasien.toMap());
                   final pasienDenganId = newPasien.copyWith(id: docRef.id);
-
-                  // ✅ CETAK OTOMATIS SETELAH SIMPAN
                   await KartuGenerator.printKartu(pasienDenganId);
-
                   if (contextLocal.mounted) {
                     ScaffoldMessenger.of(contextLocal).showSnackBar(
                       SnackBar(content: Text("Pasien $nama berhasil ditambahkan dan dicetak")),
                     );
                     Navigator.of(contextLocal).pop();
+                    _loadDaftarPasien();
                   }
                 } catch (e) {
                   if (contextLocal.mounted) {
@@ -320,11 +310,10 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
-  // ✅ Edit Pasien
   void _editPasien(Pasien pasien) {
     final contextLocal = context;
     _namaController.text = pasien.namaLengkap;
-    _golonganDarah = pasien.golonganDarah;
+    _alamatController.text = pasien.alamat ?? '';
     _jenisKelamin = pasien.jenisKelamin;
     _tanggalLahirController.text = pasien.umur;
     _noTeleponController.text = pasien.noTelepon;
@@ -346,12 +335,10 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _golonganDarah,
-                  hint: const Text("Pilih Golongan Darah"),
-                  decoration: const InputDecoration(border: OutlineInputBorder()),
-                  items: ["A-", "A+", "B-", "B+", "AB+", "AB-", "O+", "O-"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                  onChanged: (value) => setState(() => _golonganDarah = value),
+                TextField(
+                  controller: _alamatController,
+                  decoration: const InputDecoration(labelText: "Alamat", border: OutlineInputBorder()),
+                  maxLines: 2,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -396,27 +383,25 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
               onPressed: () async {
                 final nama = _namaController.text.trim();
-                final noTelepon = _noTeleponController.text.trim();
                 final umur = _tanggalLahirController.text.trim();
-                if (nama.isEmpty || noTelepon.isEmpty || _golonganDarah == null || _jenisKelamin == null || _status == null || umur.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Semua field wajib diisi")));
+                if (nama.isEmpty || _jenisKelamin == null || umur.isEmpty || _status == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Nama, Jenis Kelamin, Umur, dan Status wajib diisi")));
                   return;
                 }
-
                 final updatedPasien = pasien.copyWith(
                   namaLengkap: nama,
-                  golonganDarah: _golonganDarah!,
+                  alamat: _alamatController.text.trim(),
                   jenisKelamin: _jenisKelamin!,
                   umur: umur,
-                  noTelepon: noTelepon,
+                  noTelepon: _noTeleponController.text.trim(),
                   status: _status!,
                   alergiObat: _alergiObatController.text.isEmpty ? null : _alergiObatController.text,
                 );
-
                 try {
                   await FirebaseFirestore.instance.collection('pasien').doc(pasien.id).update(updatedPasien.toMap());
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Pasien $nama diperbarui")));
                   Navigator.of(context).pop();
+                  _loadDaftarPasien();
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gagal memperbarui")));
                 }
@@ -429,7 +414,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
-  // ✅ Hapus Pasien
   void _deletePasien(String docId) {
     showDialog(
       context: context,
@@ -445,6 +429,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                 await FirebaseFirestore.instance.collection('pasien').doc(docId).delete();
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pasien dihapus")));
                 Navigator.of(context).pop();
+                _loadDaftarPasien();
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gagal menghapus")));
               }
@@ -456,12 +441,10 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
-  // ✅ Cetak Kartu Pasien
   Future<void> _printPasien(Pasien pasien) async {
     await KartuGenerator.printKartu(pasien);
   }
 
-  // ✅ Logout
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -485,45 +468,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
-  // ✅ Anamnesa Awal - TAMPILAN
-  Widget _buildAnamnesaAwal() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Anamnesa Awal Pasien', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Poppins')),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: _showAnamnesaAwal,
-          icon: const Icon(Icons.add),
-          label: const Text("Tambah Pemeriksaan"),
-        ),
-        const SizedBox(height: 16),
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance.collection('anamnesa_awal').orderBy('tanggalKunjungan', descending: true).snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) return const Text("Gagal muat data");
-            if (!snapshot.hasData) return const CircularProgressIndicator();
-
-            final docs = snapshot.data!.docs;
-            return ListView(
-              shrinkWrap: true,
-              children: docs.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final date = (data['tanggalKunjungan'] as Timestamp).toDate();
-                return ListTile(
-                  title: Text(data['namaPasien']),
-                  subtitle: Text("${data['tekananDarah']} | ${data['suhuTubuh']}°C | ${DateFormat('dd/MM HH:mm').format(date)}"),
-                  trailing: Text(data['nomorRekamMedis']),
-                );
-              }).toList(),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  // ✅ Anamnesa Awal - FORM
+  // ✅ VERSI DIPERBAIKI: _selectedPasienId diakses dengan benar
   void _showAnamnesaAwal() {
     _anamnesaNamaController.clear();
     _anamnesaRMController.clear();
@@ -531,7 +476,14 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     _suhuController.clear();
     _tinggiController.clear();
     _beratController.clear();
-    _selectedPasienId = null;
+    _keluhanController.clear();
+
+    // ✅ Reset ID pasien yang dipilih
+    setState(() {
+      _selectedPasienId = null;
+    });
+
+    _tanggalKunjunganController.text = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
     showDialog(
       context: context,
@@ -542,9 +494,8 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("Supporting text", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                Text("Supporting text", style: const TextStyle(fontSize: 14, color: Colors.grey)),
                 const SizedBox(height: 16),
-
                 // Nama Pasien
                 Text("Nama Pasien", style: const TextStyle(fontWeight: FontWeight.w500)),
                 const SizedBox(height: 8),
@@ -553,15 +504,16 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                     if (textValue.text.isEmpty) {
                       return _daftarPasien;
                     }
-                    return _daftarPasien.where((Pasien pasien) =>
-                        pasien.namaLengkap.toLowerCase().contains(textValue.text.toLowerCase()));
+                    return _daftarPasien.where((p) =>
+                        p.namaLengkap.toLowerCase().contains(textValue.text.toLowerCase()));
                   },
-                  displayStringForOption: (Pasien pasien) => pasien.namaLengkap,
+                  displayStringForOption: (Pasien p) => p.namaLengkap,
                   onSelected: (Pasien pasien) {
                     setState(() {
                       _anamnesaNamaController.text = pasien.namaLengkap;
                       _anamnesaRMController.text = pasien.nomorRekamMedis;
                       _selectedPasienId = pasien.id;
+                      print('DEBUG: Pasien dipilih - ID: ${_selectedPasienId}, Nama: ${pasien.namaLengkap}');
                     });
                   },
                   fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -577,9 +529,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                     );
                   },
                 ),
-
                 const SizedBox(height: 16),
-
                 // Nomor RM
                 Text("Nomor RM", style: const TextStyle(fontWeight: FontWeight.w500)),
                 const SizedBox(height: 8),
@@ -592,27 +542,56 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                     fillColor: Colors.grey.shade100,
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 // Tanggal Kunjungan
                 Text("Tanggal Kunjungan", style: const TextStyle(fontWeight: FontWeight.w500)),
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade300),
+                TextField(
+                  controller: _tanggalKunjunganController,
+                  decoration: InputDecoration(
+                    hintText: "Pilih tanggal & waktu",
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    prefixIcon: const Icon(Icons.calendar_today),
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
-                  child: Text(DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())),
+                  readOnly: true,
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: DateFormat('dd/MM/yyyy HH:mm').parse(_tanggalKunjunganController.text),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (date == null) return;
+                    final time = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay.fromDateTime(
+                        DateFormat('dd/MM/yyyy HH:mm').parse(_tanggalKunjunganController.text),
+                      ),
+                    );
+                    if (time == null) return;
+                    final dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+                    _tanggalKunjunganController.text = DateFormat('dd/MM/yyyy HH:mm').format(dateTime);
+                  },
                 ),
-
+                const SizedBox(height: 16),
+                // Keluhan
+                Text("Keluhan", style: const TextStyle(fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _keluhanController,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: "Masukkan keluhan pasien",
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                ),
                 const SizedBox(height: 24),
-
                 // Data Pemeriksaan
                 const Text("Data Pemeriksaan", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-
                 const SizedBox(height: 16),
                 _buildInputField("Tekanan Darah (mmHG)", _tekananDarahController, suffix: "mmHg"),
                 const SizedBox(height: 16),
@@ -634,34 +613,60 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                 final suhu = _suhuController.text.trim();
                 final tinggi = _tinggiController.text.trim();
                 final berat = _beratController.text.trim();
+                final keluhan = _keluhanController.text.trim();
 
-                if (_selectedPasienId == null || rm.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pilih pasien terlebih dahulu")));
+                // ✅ Validasi: pastikan pasien dipilih
+                if (_selectedPasienId == null || _selectedPasienId!.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Pilih pasien terlebih dahulu")),
+                  );
                   return;
                 }
 
+                // ✅ Validasi: RM tidak boleh kosong
+                if (rm.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Nomor Rekam Medis tidak boleh kosong")),
+                  );
+                  return;
+                }
+
+                // ✅ Validasi: semua data harus diisi
                 if (tekanan.isEmpty || suhu.isEmpty || tinggi.isEmpty || berat.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Semua data pemeriksaan wajib diisi")));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Semua data pemeriksaan wajib diisi")),
+                  );
                   return;
                 }
 
                 try {
-                  await FirebaseFirestore.instance.collection('anamnesa_awal').add({
+                  final tanggalKunjungan = DateFormat('dd/MM/yyyy HH:mm').parse(_tanggalKunjunganController.text);
+                  final dataToSave = {
                     'pasienId': _selectedPasienId,
                     'nomorRekamMedis': rm,
                     'namaPasien': _anamnesaNamaController.text.trim(),
-                    'tanggalKunjungan': DateTime.now(),
+                    'tanggalKunjungan': tanggalKunjungan,
                     'tekananDarah': tekanan,
                     'suhuTubuh': suhu,
                     'tinggiBadan': tinggi,
                     'beratBadan': berat,
+                    'keluhan': keluhan,
                     'createdAt': FieldValue.serverTimestamp(),
-                  });
+                  };
 
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pemeriksaan awal berhasil disimpan")));
+                  print('DEBUG: Menyimpan data: $dataToSave');
+
+                  await FirebaseFirestore.instance.collection('anamnesa_awal').add(dataToSave);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Pemeriksaan awal berhasil disimpan")),
+                  );
                   Navigator.of(context).pop();
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gagal menyimpan data")));
+                  print('ERROR: Gagal simpan anamnesa: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Gagal menyimpan data: $e")),
+                  );
                 }
               },
               child: const Text("Simpan Pemeriksaan", style: TextStyle(color: Colors.white)),
@@ -693,17 +698,17 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
-  // ✅ Render Konten Utama
   Widget _buildContent() {
     if (_currentView == 'Daftar Pasien') {
       return _buildDaftarPasien();
     } else if (_currentView == 'Anamnesa Awal') {
-      return _buildAnamnesaAwal(); // ✅ Sekarang benar
+      return _buildAnamnesaAwal();
+    } else if (_currentView == 'Laporan') {
+      return _buildLaporan();
     }
     return _buildDaftarPasien();
   }
 
-  // ✅ Daftar Pasien + Search
   Widget _buildDaftarPasien() {
     return Column(
       children: [
@@ -754,25 +759,20 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
             builder: (context, snapshot) {
               if (snapshot.hasError) return const Center(child: Text("Gagal memuat data"));
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
               final docs = snapshot.data!.docs;
               final pasienList = docs
                   .map((doc) => Pasien.fromMap(doc.id, doc.data() as Map<String, dynamic>))
                   .toList()
                 ..sort((a, b) => a.namaLengkap.compareTo(b.namaLengkap));
-
-              // ✅ Search by nama or RM
               final filtered = _searchQuery.isEmpty
                   ? pasienList
                   : pasienList.where((p) =>
                       p.namaLengkap.toLowerCase().contains(_searchQuery) ||
                       p.nomorRekamMedis.toLowerCase().contains(_searchQuery)).toList();
-
               final totalPages = (filtered.length / _itemsPerPage).ceil();
               final startIndex = (_currentPage - 1) * _itemsPerPage;
               final endIndex = (startIndex + _itemsPerPage).clamp(0, filtered.length);
               final currentPasien = filtered.sublist(startIndex, endIndex);
-
               return Column(
                 children: [
                   Container(
@@ -782,7 +782,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                         Expanded(flex: 1, child: _buildHeaderCell('No')),
                         Expanded(flex: 3, child: _buildHeaderCell('Nama')),
                         Expanded(flex: 2, child: _buildHeaderCell('RM')),
-                        Expanded(flex: 2, child: _buildHeaderCell('Gol. Darah')),
+                        Expanded(flex: 2, child: _buildHeaderCell('Alamat')),
                         Expanded(flex: 2, child: _buildHeaderCell('JK')),
                         Expanded(flex: 2, child: _buildHeaderCell('Umur')),
                         Expanded(flex: 2, child: _buildHeaderCell('No. Telp')),
@@ -805,7 +805,7 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                                 Expanded(flex: 1, child: _buildDataCell("$index")),
                                 Expanded(flex: 3, child: _buildDataCell(pasien.namaLengkap)),
                                 Expanded(flex: 2, child: _buildDataCell(pasien.nomorRekamMedis)),
-                                Expanded(flex: 2, child: _buildDataCell(pasien.golonganDarah)),
+                                Expanded(flex: 2, child: _buildDataCell(pasien.alamat ?? '-')),
                                 Expanded(flex: 2, child: _buildDataCell(pasien.jenisKelamin)),
                                 Expanded(flex: 2, child: _buildDataCell(pasien.umur)),
                                 Expanded(flex: 2, child: _buildDataCell(pasien.noTelepon)),
@@ -853,6 +853,217 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     );
   }
 
+  // ✅ Perbaiki: Gunakan Flexible agar tidak error layout
+  Widget _buildAnamnesaAwal() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Anamnesa Awal Pasien', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+        ElevatedButton.icon(
+          onPressed: _showAnamnesaAwal,
+          icon: const Icon(Icons.add),
+          label: const Text("Tambah Pemeriksaan"),
+        ),
+        const SizedBox(height: 16),
+        // ✅ Gunakan Flexible, bukan Expanded langsung
+        Flexible(
+          fit: FlexFit.tight,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('anamnesa_awal').orderBy('tanggalKunjungan', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text("Error: ${snapshot.error}");
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.data!.docs.isEmpty) {
+                return const Center(child: Text("Belum ada data anamnesa awal."));
+              }
+              final docs = snapshot.data!.docs;
+              return Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 1, child: _buildHeaderCell('No')),
+                        Expanded(flex: 3, child: _buildHeaderCell('Nama')),
+                        Expanded(flex: 2, child: _buildHeaderCell('RM')),
+                        Expanded(flex: 2, child: _buildHeaderCell('Keluhan')),
+                        Expanded(flex: 2, child: _buildHeaderCell('Tanggal')),
+                        Expanded(flex: 2, child: _buildHeaderCell('Aksi')),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView(
+                      children: docs.asMap().entries.map((entry) {
+                        final index = entry.key + 1;
+                        final data = entry.value.data() as Map<String, dynamic>;
+                        final timestamp = data['tanggalKunjungan'] as Timestamp;
+                        final date = timestamp.toDate();
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: Container(
+                            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+                            child: Row(
+                              children: [
+                                Expanded(flex: 1, child: _buildDataCell("$index")),
+                                Expanded(flex: 3, child: _buildDataCell(data['namaPasien'])),
+                                Expanded(flex: 2, child: _buildDataCell(data['nomorRekamMedis'])),
+                                Expanded(flex: 2, child: _buildDataCell(data['keluhan'] ?? '-')),
+                                Expanded(flex: 2, child: _buildDataCell(DateFormat('dd/MM HH:mm').format(date))),
+                                Expanded(
+                                  flex: 2,
+                                  child: Container(
+                                    alignment: Alignment.center,
+                                    height: 48,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.print, size: 18, color: Colors.blue),
+                                      onPressed: () async {
+                                        final pdf = pw.Document();
+                                        pdf.addPage(pw.Page(build: (context) => pw.Column(children: [
+                                          pw.Text('Anamnesa Pasien'),
+                                          pw.Text('Nama: ${data['namaPasien']}'),
+                                          pw.Text('RM: ${data['nomorRekamMedis']}'),
+                                          pw.Text('Tanggal: ${DateFormat('dd/MM/yyyy HH:mm').format(date)}'),
+                                          pw.Text('Keluhan: ${data['keluhan'] ?? '-'}'),
+                                          pw.Text('Tekanan: ${data['tekananDarah']} mmHg'),
+                                          pw.Text('Suhu: ${data['suhuTubuh']} °C'),
+                                          pw.Text('Tinggi: ${data['tinggiBadan']} cm'),
+                                          pw.Text('Berat: ${data['beratBadan']} kg'),
+                                        ])));
+                                        await Printing.layoutPdf(onLayout: (_) => pdf.save());
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLaporan() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Laporan Kunjungan Pasien', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            DropdownButton<String>(
+              value: _filterType,
+              items: ['Harian', 'Bulanan', 'Tahunan'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (value) => setState(() => _filterType = value!),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _filterDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (date != null) {
+                  setState(() => _filterDate = date);
+                }
+              },
+              icon: const Icon(Icons.calendar_today),
+              label: Text(DateFormat('dd/MM/yyyy').format(_filterDate)),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final snapshot = await FirebaseFirestore.instance.collection('anamnesa_awal').get();
+                final data = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+                final filtered = data.where((item) {
+                  final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                  if (_filterType == 'Harian') {
+                    return date.day == _filterDate.day && date.month == _filterDate.month && date.year == _filterDate.year;
+                  } else if (_filterType == 'Bulanan') {
+                    return date.month == _filterDate.month && date.year == _filterDate.year;
+                  } else {
+                    return date.year == _filterDate.year;
+                  }
+                }).toList();
+                final pdf = pw.Document();
+                pdf.addPage(pw.Page(build: (context) => pw.Column(
+                  children: [
+                    pw.Text('Laporan ${_filterType}', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Periode: ${DateFormat('dd/MM/yyyy').format(_filterDate)}'),
+                    pw.SizedBox(height: 20),
+                    ...filtered.map((item) {
+                      final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                      return pw.Column(
+                        children: [
+                          pw.Text('Nama: ${item['namaPasien']}'),
+                          pw.Text('RM: ${item['nomorRekamMedis']}'),
+                          pw.Text('Keluhan: ${item['keluhan'] ?? '-'}'),
+                          pw.Text('Tanggal: ${DateFormat('dd/MM/yyyy HH:mm').format(date)}'),
+                          pw.Divider(),
+                        ],
+                      );
+                    }).toList(),
+                  ],
+                )));
+                await Printing.layoutPdf(onLayout: (_) => pdf.save());
+              },
+              icon: const Icon(Icons.print),
+              label: const Text("Cetak Laporan"),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('anamnesa_awal').orderBy('tanggalKunjungan', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return const Text("Gagal muat data");
+              if (!snapshot.hasData) return const CircularProgressIndicator();
+              final docs = snapshot.data!.docs;
+              final data = docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+              final filtered = data.where((item) {
+                final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                if (_filterType == 'Harian') {
+                  return date.day == _filterDate.day && date.month == _filterDate.month && date.year == _filterDate.year;
+                } else if (_filterType == 'Bulanan') {
+                  return date.month == _filterDate.month && date.year == _filterDate.year;
+                } else {
+                  return date.year == _filterDate.year;
+                }
+              }).toList();
+              return ListView(
+                children: filtered.map((item) {
+                  final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                  return ListTile(
+                    title: Text(item['namaPasien']),
+                    subtitle: Text("${item['keluhan'] ?? '-'} | ${DateFormat('dd/MM HH:mm').format(date)}"),
+                    trailing: Text(item['nomorRekamMedis']),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHeaderCell(String label) {
     return Container(
       alignment: Alignment.center,
@@ -874,35 +1085,36 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
   }
 
   Widget _buildSidebarItem(IconData icon, String title, Color color, {VoidCallback? onTap}) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hoveredItem = title),
-          onExit: (_) => setState(() => _hoveredItem = null),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: _hoveredItem == title ? Colors.white12 : Colors.transparent, borderRadius: BorderRadius.circular(8)),
-            child: InkWell(
-              onTap: () {
-                setState(() => _currentView = title);
-                onTap?.call();
-              },
-              borderRadius: BorderRadius.circular(8),
-              splashColor: Colors.white30,
-              highlightColor: Colors.white10,
-              child: ListTile(
-                leading: Icon(icon, color: color, size: 20),
-                title: _isSidebarCollapsed ? null : Text(title, style: TextStyle(color: color, fontSize: 14)),
-                dense: true,
-                horizontalTitleGap: 12,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              ),
-            ),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hoveredItem = title),
+      onExit: (_) => setState(() => _hoveredItem = null),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _currentView = title;
+          });
+          onTap?.call();
+        },
+        borderRadius: BorderRadius.circular(8),
+        splashColor: Colors.white30,
+        highlightColor: Colors.white10,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: _hoveredItem == title ? Colors.white12 : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
           ),
-        );
-      },
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              if (!_isSidebarCollapsed) const SizedBox(width: 12),
+              if (!_isSidebarCollapsed) Text(title, style: TextStyle(color: color, fontSize: 14)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -911,7 +1123,6 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -976,8 +1187,8 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Klinik Pratama', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10, shadows: [Shadow(offset: Offset(1, 1), blurRadius: 2, color: Color.fromARGB(158, 232, 68, 147))]), maxLines: 1),
-                              Text('Sakura Medical Center', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10, shadows: [Shadow(offset: Offset(1, 1), blurRadius: 2, color: Color.fromARGB(158, 232, 68, 147))]), maxLines: 1),
+                              Text('Klinik Pratama', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+                              Text('Sakura Medical Center', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
                             ],
                           ),
                         ),
@@ -986,26 +1197,16 @@ class _MenuResepsionisPageState extends State<MenuResepsionisPage> {
                 ),
                 const Divider(color: Colors.white30, height: 1),
                 Expanded(
-                    child: ListView(
-    padding: EdgeInsets.zero,
-    children: [
-      _buildSidebarItem(Icons.person_add, 'Daftar Pasien', menuColor, onTap: () {
-        setState(() {
-          _currentView = 'Daftar Pasien';
-        });
-      }),
-      _buildSidebarItem(Icons.edit_note, 'Anamnesa Awal', menuColor, onTap: () {
-        setState(() {
-          _currentView = 'Anamnesa Awal';
-        });
-      }),
-      _buildSidebarItem(Icons.bar_chart, 'Laporan', menuColor, onTap: () {
-        // Bisa diisi nanti
-      }),
-      _buildSidebarItem(Icons.logout, 'Sign Out', menuColor, onTap: _showLogoutDialog),
-    ],
-  ),
-),
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      _buildSidebarItem(Icons.person_add, 'Daftar Pasien', menuColor),
+                      _buildSidebarItem(Icons.edit_note, 'Anamnesa Awal', menuColor),
+                      _buildSidebarItem(Icons.bar_chart, 'Laporan', menuColor),
+                      _buildSidebarItem(Icons.logout, 'Sign Out', menuColor, onTap: _showLogoutDialog),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

@@ -1,9 +1,9 @@
 // lib/views/menu_admin_page.dart
 // ignore_for_file: use_build_context_synchronously
-import 'dart:typed_uint';
 import 'package:firebase_auth/firebase_auth.dart' as firebase;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:universal_html/html.dart' as html;
 import '../models/user_model.dart';
@@ -17,8 +17,46 @@ class MenuAdminPage extends StatefulWidget {
   State<MenuAdminPage> createState() => _MenuAdminPageState();
 }
 
+class _WebFilePicker extends StatelessWidget {
+  final void Function(Uint8List bytes, String filename) onFileSelected;
+
+  const _WebFilePicker({required this.onFileSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        final input = html.FileUploadInputElement()
+          ..accept = 'image/*'
+          ..click();
+
+        input.onChange.listen((event) {
+          final file = input.files!.first;
+          final reader = html.FileReader();
+          reader.readAsArrayBuffer(file);
+
+          reader.onLoadEnd.listen((e) {
+            final bytes = reader.result as Uint8List;
+            onFileSelected(bytes, file.name);
+          });
+        });
+      },
+      child: Container(
+        width: 35,
+        height: 35,
+        decoration: const BoxDecoration(
+          color: Color(0xFFEA2070),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.edit, size: 18, color: Colors.white),
+      ),
+    );
+  }
+}
+
 class _MenuAdminPageState extends State<MenuAdminPage> {
   late Admin admin;
+
   bool _isSidebarCollapsed = false;
   String? _hoveredItem;
   int? _hoveredRow;
@@ -28,7 +66,6 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
 
   final TextEditingController searchController = TextEditingController();
 
-  // Form Controllers
   final TextEditingController _namaController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -38,15 +75,11 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
   String? _selectedJabatan;
   final List<String> _jabatanOptions = ['Dokter', 'Resepsionis', 'Apoteker'];
 
-  // Upload Image
-  Uint8List? selectedImageBytes;
-  String selectedImageUrl = 'assets/images/user_placeholder.png';
-
-  // Pagination
+  // ✅ Pagination
   int _currentPage = 1;
   final int _itemsPerPage = 10;
 
-  // Sort
+  // ✅ Sort
   bool _sortAscending = true;
   String? _sortBy;
 
@@ -60,34 +93,30 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
       password: '',
       telepon: '',
       fotoUrl: 'assets/images/user_placeholder.png',
-      fotoBytes: null,
     );
     _loadAdminData();
     _setupUserStream();
   }
 
-  @override
-  void dispose() {
-    searchController.dispose();
-    _namaController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    _emailController.dispose();
-    _teleponController.dispose();
-    super.dispose();
-  }
-
-  // ✅ Load Data Admin
+  // ✅ Load data admin dari Firestore
   Future<void> _loadAdminData() async {
-    final user = firebase.FirebaseAuth.instance.currentUser;
+    firebase.User? user = firebase.FirebaseAuth.instance.currentUser;
     if (user == null) {
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+      final contextLocal = context;
+      if (contextLocal.mounted) {
+        Navigator.pushReplacement(
+          contextLocal,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
       }
       return;
     }
 
-    final doc = await FirebaseFirestore.instance.collection('admins').doc(user.uid).get();
+    final doc = await FirebaseFirestore.instance
+        .collection('admins')
+        .doc(user.uid)
+        .get();
+
     if (doc.exists) {
       final data = doc.data()!;
       if (mounted) {
@@ -104,37 +133,139 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
         });
       }
     } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      final contextLocal = context;
+      if (contextLocal.mounted) {
+        ScaffoldMessenger.of(contextLocal).showSnackBar(
           const SnackBar(content: Text("Data admin tidak ditemukan")),
         );
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+        Navigator.pushReplacement(
+          contextLocal,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
       }
     }
   }
 
-  // ✅ Setup Stream User
+  // ✅ Setup stream untuk user (realtime)
   void _setupUserStream() {
     usersStream = FirebaseFirestore.instance.collection('users').snapshots();
     usersStream.listen((snapshot) {
+      final List<User> newUsers = [];
+      for (final doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        newUsers.add(
+          User(
+            docId: doc.id, // ✅ Simpan docId
+            namaLengkap: data['namaLengkap'],
+            status: data['status'],
+            username: data['username'],
+            password: data['password'],
+            email: data['email'],
+            telepon: data['telepon'],
+          ),
+        );
+      }
       if (mounted) {
         setState(() {
-          users = snapshot.docs.map((doc) => User.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList();
+          users = newUsers;
+          _currentPage = 1;
         });
       }
     });
   }
 
-  // ✅ Validasi Password
-  bool isValidPassword(String password) {
-    final hasUppercase = password.contains(RegExp(r'[A-Z]'));
-    final hasLowercase = password.contains(RegExp(r'[a-z]'));
-    final hasDigits = password.contains(RegExp(r'[0-9]'));
-    final hasMinLength = password.length >= 8;
-    return hasUppercase && hasLowercase && hasDigits && hasMinLength;
+  @override
+  void dispose() {
+    searchController.dispose();
+    _namaController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _emailController.dispose();
+    _teleponController.dispose();
+    super.dispose();
   }
 
-  // ✅ Cek Duplikat User
+  // ✅ Sort by field
+  void _sortUsers(String field) {
+    if (!mounted) return;
+    setState(() {
+      if (_sortBy == field) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortBy = field;
+        _sortAscending = true;
+      }
+
+      users.sort((a, b) {
+        int comparison = 0;
+        switch (field) {
+          case 'nama':
+            comparison = a.namaLengkap.compareTo(b.namaLengkap);
+            break;
+          case 'status':
+            comparison = a.status.compareTo(b.status);
+            break;
+          case 'username':
+            comparison = a.username.compareTo(b.username);
+            break;
+          case 'email':
+            comparison = a.email.compareTo(b.email);
+            break;
+          default:
+            comparison = 0;
+        }
+        return _sortAscending ? comparison : -comparison;
+      });
+
+      _currentPage = 1;
+    });
+  }
+
+  // ✅ Hitung total halaman
+  int get _totalPages {
+    return (users.length / _itemsPerPage).ceil();
+  }
+
+  // ✅ Ambil data untuk halaman saat ini
+  List<User> get _currentUsers {
+    final startIndex = (_currentPage - 1) * _itemsPerPage;
+    final endIndex = (startIndex + _itemsPerPage).clamp(startIndex, users.length);
+    return users.sublist(startIndex, endIndex);
+  }
+
+  void _addUser() {
+    _resetFormControllers();
+    _showUserForm(isEdit: false, user: null);
+  }
+
+  void _editUser(User user) {
+    _namaController.text = user.namaLengkap;
+    _usernameController.text = user.username;
+    _passwordController.text = user.password;
+    _emailController.text = user.email;
+    _teleponController.text = user.telepon;
+    _selectedJabatan = user.status;
+    _showUserForm(isEdit: true, user: user);
+  }
+
+  void _resetFormControllers() {
+    _namaController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+    _emailController.clear();
+    _teleponController.clear();
+    _selectedJabatan = null;
+  }
+
+  // ✅ Validasi password kuat
+  bool isValidPassword(String password) {
+    final passwordRegex = RegExp(
+      r'^(?=.[a-z])(?=.[A-Z])(?=.\d)[a-zA-Z\d@$!%?&]{8,}$',
+    );
+    return passwordRegex.hasMatch(password);
+  }
+
+  // ✅ Cek duplikat username atau email
   bool isDuplicateUser(String username, String email, [User? excludeUser]) {
     return users.any((user) {
       if (excludeUser != null && user.docId == excludeUser.docId) return false;
@@ -142,31 +273,8 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
     });
   }
 
-  // ✅ Tambah/Edit User
-  void _showUserForm({User? user}) {
+  void _showUserForm({required bool isEdit, User? user}) {
     final contextLocal = context;
-    final isEdit = user != null;
-
-    if (isEdit) {
-      _namaController.text = user.namaLengkap;
-      _usernameController.text = user.username;
-      _emailController.text = user.email;
-      _teleponController.text = user.telepon;
-      _selectedJabatan = user.status;
-      _passwordController.text = user.password;
-      selectedImageUrl = user.fotoUrl ?? 'assets/images/user_placeholder.png';
-      selectedImageBytes = user.fotoBytes;
-    } else {
-      _namaController.clear();
-      _usernameController.clear();
-      _emailController.clear();
-      _teleponController.clear();
-      _passwordController.clear();
-      _selectedJabatan = null;
-      selectedImageUrl = 'assets/images/user_placeholder.png';
-      selectedImageBytes = null;
-    }
-
     showDialog(
       context: contextLocal,
       builder: (context) {
@@ -178,94 +286,67 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Foto Profil
-                    Center(
-                      child: Stack(
-                        children: [
-                          Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.grey, width: 2),
-                            ),
-                            child: ClipOval(
-                              child: selectedImageBytes != null
-                                  ? Image.memory(selectedImageBytes!, fit: BoxFit.cover)
-                                  : Image.asset(selectedImageUrl, fit: BoxFit.cover),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: GestureDetector(
-                              onTap: () async {
-                                final result = await FilePicker.platform.pickFiles(type: FileType.image);
-                                if (result != null) {
-                                  final bytes = result.files.first.bytes;
-                                  if (bytes != null && bytes.lengthInBytes > 2 * 1024 * 1024) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("File terlalu besar (max 2MB)")),
-                                    );
-                                    return;
-                                  }
-                                  setState(() {
-                                    selectedImageBytes = bytes;
-                                    selectedImageUrl = '';
-                                  });
-                                }
-                              },
-                              child: Container(
-                                width: 35,
-                                height: 35,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFEA2070),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.edit, size: 18, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
                     TextField(
                       controller: _namaController,
-                      decoration: const InputDecoration(labelText: 'Nama Lengkap', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lengkap',
+                        border: OutlineInputBorder(),
+                      ),
                       autofocus: true,
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _usernameController,
-                      decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Username',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
+                      obscureText: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _emailController,
-                      decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _teleponController,
-                      decoration: const InputDecoration(labelText: 'Telepon', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Telepon',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: _selectedJabatan,
                       hint: const Text("Pilih Jabatan"),
-                      decoration: const InputDecoration(border: OutlineInputBorder()),
-                      items: _jabatanOptions.map((e) {
-                        return DropdownMenuItem(value: e, child: Text(e));
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _jabatanOptions.map((jabatan) {
+                        return DropdownMenuItem(
+                          value: jabatan,
+                          child: Text(jabatan),
+                        );
                       }).toList(),
-                      onChanged: (value) => setState(() => _selectedJabatan = value),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedJabatan = value;
+                        });
+                      },
                     ),
                   ],
                 ),
@@ -278,70 +359,108 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
               child: const Text("Batal"),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA2070),
+              ),
               onPressed: () async {
+                final contextLocal = context;
                 final nama = _namaController.text.trim();
                 final username = _usernameController.text.trim();
-                final password = _passwordController.text.trim();
+                final password = _passwordController.text;
                 final email = _emailController.text.trim();
                 final telepon = _teleponController.text.trim();
 
-                if (nama.isEmpty || username.isEmpty || password.isEmpty || email.isEmpty || telepon.isEmpty || _selectedJabatan == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Semua field wajib diisi")),
-                  );
+                if (nama.isEmpty ||
+                    username.isEmpty ||
+                    password.isEmpty ||
+                    email.isEmpty ||
+                    telepon.isEmpty ||
+                    _selectedJabatan == null) {
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(content: Text("Semua field harus diisi")),
+                    );
+                  }
                   return;
                 }
 
                 if (!isValidPassword(password)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Password harus 8+ karakter, huruf besar, kecil, dan angka")),
-                  );
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "Password harus: 8+ karakter, huruf besar, huruf kecil, dan angka",
+                        ),
+                      ),
+                    );
+                  }
                   return;
                 }
 
                 if (isDuplicateUser(username, email, isEdit ? user : null)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Username atau email sudah digunakan")),
-                  );
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(
+                        content: Text("Username atau email sudah digunakan"),
+                      ),
+                    );
+                  }
                   return;
                 }
 
                 try {
-                  final userData = {
-                    'namaLengkap': nama,
-                    'status': _selectedJabatan,
-                    'username': username,
-                    'password': password,
-                    'email': email,
-                    'telepon': telepon,
-                    'fotoUrl': selectedImageUrl,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  };
-
-                  if (selectedImageBytes != null) {
-                    userData['fotoBytes'] = selectedImageBytes;
-                  }
-
                   if (isEdit && user != null) {
-                    await FirebaseFirestore.instance.collection('users').doc(user.docId).update(userData);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("User $nama berhasil diupdate")),
-                    );
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user.docId) // ✅ Gunakan docId
+                        .update({
+                      'namaLengkap': nama,
+                      'status': _selectedJabatan!,
+                      'username': username,
+                      'password': password,
+                      'email': email,
+                      'telepon': telepon,
+                    });
+
+                    if (contextLocal.mounted) {
+                      ScaffoldMessenger.of(contextLocal).showSnackBar(
+                        SnackBar(content: Text("User $nama berhasil diupdate")),
+                      );
+                      Navigator.of(contextLocal).pop();
+                    }
                   } else {
-                    await FirebaseFirestore.instance.collection('users').add(userData);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("User $nama berhasil ditambahkan")),
+                    await FirebaseFirestore.instance.collection('users').add({
+                      'namaLengkap': nama,
+                      'status': _selectedJabatan!,
+                      'username': username,
+                      'password': password,
+                      'email': email,
+                      'telepon': telepon,
+                    });
+
+                    if (contextLocal.mounted) {
+                      ScaffoldMessenger.of(contextLocal).showSnackBar(
+                        SnackBar(
+                          content: Text("User $nama berhasil ditambahkan"),
+                        ),
+                      );
+                      Navigator.of(contextLocal).pop();
+                    }
+                  }
+                } catch (e) {
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(
+                        content: Text("Gagal menyimpan ke database"),
+                      ),
                     );
                   }
-                  Navigator.of(context).pop();
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Gagal menyimpan data")),
-                  );
                 }
               },
-              child: const Text("Simpan", style: TextStyle(color: Colors.white)),
+              child: const Text(
+                "Simpan",
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -349,91 +468,316 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
     );
   }
 
-  // ✅ Edit User
-  void _editUser(User user) {
-    _showUserForm(user: user);
-  }
-
-  // ✅ Hapus User
-  void _deleteUser(String docId) {
+  void _deleteUser(String docId) { // ✅ Ubah dari int ke String
+    final contextLocal = context;
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Konfirmasi Hapus"),
-        content: const Text("Yakin ingin menghapus user ini?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Batal")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
-            onPressed: () async {
-              try {
-                await FirebaseFirestore.instance.collection('users').doc(docId).delete();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User dihapus")));
-                Navigator.of(context).pop();
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gagal menghapus")));
-              }
-            },
-            child: const Text("Hapus", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ✅ Logout
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Keluar"),
-        content: const Text("Yakin ingin keluar dari akun ini?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Batal")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
-            onPressed: () async {
-              await firebase.FirebaseAuth.instance.signOut();
-              if (mounted) {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()));
-              }
-            },
-            child: const Text("Keluar", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ✅ Render Sidebar
-  Widget _buildSidebarItem(IconData icon, String title, Color color, {VoidCallback? onTap}) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hoveredItem = title),
-          onExit: (_) => setState(() => _hoveredItem = null),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _hoveredItem == title ? Colors.white12 : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+      context: contextLocal,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Konfirmasi Hapus"),
+          content: const Text("Yakin ingin menghapus user ini?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Batal"),
             ),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(8),
-              splashColor: Colors.white30,
-              highlightColor: Colors.white10,
-              child: ListTile(
-                leading: Icon(icon, color: color, size: 20),
-                title: _isSidebarCollapsed ? null : Text(title, style: TextStyle(color: color, fontSize: 14)),
-                dense: true,
-                horizontalTitleGap: 12,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA2070),
+              ),
+              onPressed: () async {
+                final contextLocal = context;
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(docId) // ✅ Gunakan docId
+                      .delete();
+
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(content: Text("User berhasil dihapus")),
+                    );
+                    Navigator.of(contextLocal).pop();
+                  }
+                } catch (e) {
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(content: Text("Gagal menghapus user")),
+                    );
+                  }
+                }
+              },
+              child: const Text("Hapus", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLogoutDialog() {
+    final contextLocal = context;
+    showDialog(
+      context: contextLocal,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Keluar"),
+          content: const Text("Yakin ingin keluar dari akun ini?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Batal"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA2070),
+              ),
+              onPressed: () async {
+                final contextLocal = context;
+                await firebase.FirebaseAuth.instance.signOut();
+                if (contextLocal.mounted) {
+                  Navigator.pushReplacement(
+                    contextLocal,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                  );
+                }
+              },
+              child: const Text(
+                "Keluar",
+                style: TextStyle(color: Colors.white),
               ),
             ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showEditProfilDialog(BuildContext context) async {
+    final contextLocal = context;
+    final TextEditingController usernameController = TextEditingController(
+      text: admin.username,
+    );
+    final TextEditingController passwordController = TextEditingController(
+      text: admin.password,
+    );
+    final TextEditingController teleponController = TextEditingController(
+      text: admin.telepon,
+    );
+    bool isPasswordVisible = false;
+
+    Uint8List? selectedImageBytes = admin.fotoBytes;
+    String? selectedImageUrl = admin.fotoUrl;
+
+    Future<void> pickImageFromMobile() async {
+      if (kIsWeb || !context.mounted) return;
+
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowedExtensions: ['jpg', 'jpeg', 'png'],
+      );
+
+      if (result != null) {
+        if (result.files.single.size <= 2 * 1024 * 1024) {
+          final Uint8List fileBytes = result.files.single.bytes!;
+          if (context.mounted) {
+            setState(() {
+              selectedImageBytes = fileBytes;
+              selectedImageUrl = null;
+            });
+          }
+        } else {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("File terlalu besar (max 2MB)")),
+            );
+          }
+        }
+      }
+    }
+
+    void resetToDefault() {
+      if (context.mounted) {
+        setState(() {
+          selectedImageUrl = 'assets/images/user_placeholder.png';
+          selectedImageBytes = null;
+        });
+      }
+    }
+
+    Widget buildImageWidget() {
+      if (selectedImageBytes != null && selectedImageBytes!.isNotEmpty) {
+        return Image.memory(
+          selectedImageBytes!,
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+        );
+      } else {
+        return Image.asset(
+          selectedImageUrl ?? 'assets/images/user_placeholder.png',
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+        );
+      }
+    }
+
+    showDialog(
+      context: contextLocal,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit Profil Admin"),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Stack(
+                        children: [
+                          ClipOval(child: buildImageWidget()),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: kIsWeb
+                                ? _WebFilePicker(
+                                    onFileSelected: (bytes, filename) {
+                                      if (context.mounted) {
+                                        setState(() {
+                                          selectedImageBytes = bytes;
+                                          selectedImageUrl = null;
+                                        });
+                                      }
+                                    },
+                                  )
+                                : Container(
+                                    width: 35,
+                                    height: 35,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFEA2070),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: IconButton(
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        size: 18,
+                                        color: Colors.white,
+                                      ),
+                                      onPressed: pickImageFromMobile,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: usernameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Username',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: !isPasswordVisible,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.lock),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            isPasswordVisible
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              isPasswordVisible = !isPasswordVisible;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: teleponController,
+                      decoration: const InputDecoration(
+                        labelText: 'Nomor Telepon',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: resetToDefault,
+                      child: const Text("Gunakan Foto Default"),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Batal"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA2070),
+              ),
+              onPressed: () async {
+                final contextLocal = context;
+                if (!contextLocal.mounted) return;
+
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('admins')
+                      .doc(admin.id)
+                      .update({
+                    'username': usernameController.text,
+                    'password': passwordController.text,
+                    'telepon': teleponController.text,
+                  });
+
+                  final updatedAdmin = admin.copyWith(
+                    username: usernameController.text,
+                    password: passwordController.text,
+                    telepon: teleponController.text,
+                    fotoUrl: selectedImageUrl,
+                    fotoBytes: selectedImageBytes,
+                  );
+
+                  setState(() {
+                    admin = updatedAdmin;
+                  });
+
+                  ScaffoldMessenger.of(contextLocal).showSnackBar(
+                    const SnackBar(content: Text("Profil berhasil diperbarui")),
+                  );
+
+                  Navigator.of(contextLocal).pop();
+                } catch (e) {
+                  if (contextLocal.mounted) {
+                    ScaffoldMessenger.of(contextLocal).showSnackBar(
+                      const SnackBar(content: Text("Gagal update profil")),
+                    );
+                  }
+                }
+              },
+              child: const Text(
+                "Simpan",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -442,7 +786,9 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
   @override
   Widget build(BuildContext context) {
     if (admin.nama == 'Loading...') {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     const menuColor = Colors.white;
@@ -452,25 +798,46 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
         title: Row(
           children: [
             IconButton(
-              icon: Icon(_isSidebarCollapsed ? Icons.menu_open : Icons.menu, color: Colors.white),
-              onPressed: () => setState(() => _isSidebarCollapsed = !_isSidebarCollapsed),
+              icon: Icon(
+                _isSidebarCollapsed ? Icons.menu_open : Icons.menu,
+                color: Colors.white,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isSidebarCollapsed = !_isSidebarCollapsed;
+                });
+              },
             ),
-            const SizedBox(width: 8),
-            Text('Halo, ${admin.nama}', style: const TextStyle(color: Colors.white)),
           ],
         ),
+        backgroundColor: const Color.fromRGBO(255, 142, 187, 1),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: CircleAvatar(
-              backgroundColor: const Color(0xFFEA2070),
-              child: admin.fotoBytes != null
-                  ? ClipOval(child: Image.memory(admin.fotoBytes!, width: 40, height: 40, fit: BoxFit.cover))
-                  : Image.asset(admin.fotoUrl, width: 40, height: 40, fit: BoxFit.cover),
+          GestureDetector(
+            onTap: () {
+              _showEditProfilDialog(context);
+            },
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundImage: admin.fotoBytes != null
+                      ? MemoryImage(admin.fotoBytes!)
+                      : AssetImage(
+                              admin.fotoUrl ??
+                                  'assets/images/user_placeholder.png',
+                            )
+                            as ImageProvider,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  admin.nama,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
             ),
           ),
+          const SizedBox(width: 16),
         ],
-        backgroundColor: const Color(0xFFFF8DAA),
       ),
       body: Row(
         children: [
@@ -492,8 +859,40 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Klinik Pratama', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
-                              Text('Sakura Medical Center', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+                              Text(
+                                'Klinik Pratama',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(1, 1),
+                                      blurRadius: 2,
+                                      color: Color.fromARGB(158, 232, 68, 147),
+                                    ),
+                                  ],
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                              Text(
+                                'Sakura Medical Center',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(1, 1),
+                                      blurRadius: 2,
+                                      color: Color.fromARGB(158, 232, 68, 147),
+                                    ),
+                                  ],
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
                             ],
                           ),
                         ),
@@ -505,15 +904,25 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
                   child: ListView(
                     padding: EdgeInsets.zero,
                     children: [
-                      _buildSidebarItem(Icons.person_add, 'Tambah User', menuColor, onTap: () => _showUserForm()),
-                      _buildSidebarItem(Icons.people, 'Daftar User', menuColor, onTap: () {}),
-                      _buildSidebarItem(Icons.logout, 'Sign Out', menuColor, onTap: _showLogoutDialog),
+                      _buildSidebarItem(
+                        Icons.group,
+                        'Daftar User',
+                        menuColor,
+                        onTap: () {},
+                      ),
+                      _buildSidebarItem(
+                        Icons.logout,
+                        'Sign Out',
+                        menuColor,
+                        onTap: _showLogoutDialog,
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
           ),
+
           // KONTEN UTAMA
           Expanded(
             child: Padding(
@@ -521,27 +930,87 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Manajemen User', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Daftar User',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Poppins',
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       ElevatedButton.icon(
-                        onPressed: () => _showUserForm(),
-                        icon: const Icon(Icons.person_add),
-                        label: const Text("Tambah User"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Color(0xFFEA2070),
+                          side: BorderSide(color: Color(0xFFEA2070)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                        ),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text(
+                          'Tambah User',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        onPressed: _addUser,
                       ),
                       const SizedBox(width: 12),
                       SizedBox(
-                        width: 300,
+                        width: 250,
+                        height: 33,
                         child: TextField(
                           controller: searchController,
                           decoration: InputDecoration(
-                            hintText: 'Cari user...',
-                            prefixIcon: const Icon(Icons.search),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            hintText: 'Cari User...',
+                            prefixIcon: const Icon(Icons.search, size: 18),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                            focusedBorder: const OutlineInputBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(8),
+                              ),
+                              borderSide: BorderSide(
+                                color: Color(0xFFEA2070),
+                                width: 2,
+                              ),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                            isDense: true,
                           ),
-                          onChanged: (value) {
-                            setState(() {});
+                          style: const TextStyle(fontSize: 14),
+                          onChanged: (query) {
+                            if (mounted) {
+                              setState(() {
+                                users = users.where((user) {
+                                  final nama = user.namaLengkap.toLowerCase();
+                                  final username = user.username.toLowerCase();
+                                  final status = user.status.toLowerCase();
+                                  final email = user.email.toLowerCase();
+                                  final telepon = user.telepon.toLowerCase();
+                                  return nama.contains(query) ||
+                                      username.contains(query) ||
+                                      status.contains(query) ||
+                                      email.contains(query) ||
+                                      telepon.contains(query);
+                                }).toList();
+                                _currentPage = 1;
+                              });
+                            }
                           },
                         ),
                       ),
@@ -549,31 +1018,11 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: StreamBuilder<QuerySnapshot>(
-                      stream: usersStream,
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) return const Text("Gagal muat data");
-                        if (!snapshot.hasData) return const CircularProgressIndicator();
-
-                        final docs = snapshot.data!.docs;
-                        final allUsers = docs
-                            .map((doc) => User.fromMap(doc.id, doc.data() as Map<String, dynamic>))
-                            .toList();
-
-                        final filtered = searchController.text.isEmpty
-                            ? allUsers
-                            : allUsers
-                                .where((u) =>
-                                    u.namaLengkap.toLowerCase().contains(searchController.text.toLowerCase()) ||
-                                    u.username.toLowerCase().contains(searchController.text.toLowerCase()))
-                                .toList();
-
-                        final totalPages = (filtered.length / _itemsPerPage).ceil();
-                        final startIndex = (_currentPage - 1) * _itemsPerPage;
-                        final endIndex = startIndex + _itemsPerPage;
-                        final currentUsers = filtered.sublist(startIndex, endIndex.clamp(0, filtered.length));
-
-                        return Column(
+                    child: SingleChildScrollView(
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
                               decoration: BoxDecoration(
@@ -583,87 +1032,216 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
                               ),
                               child: Row(
                                 children: [
-                                  Expanded(flex: 1, child: _buildHeaderCell('No')),
-                                  Expanded(flex: 3, child: _buildHeaderCell('Nama')),
-                                  Expanded(flex: 2, child: _buildHeaderCell('Username')),
-                                  Expanded(flex: 2, child: _buildHeaderCell('Jabatan')),
-                                  Expanded(flex: 2, child: _buildHeaderCell('Email')),
-                                  Expanded(flex: 2, child: _buildHeaderCell('Telepon')),
-                                  Expanded(flex: 2, child: _buildHeaderCell('Aksi')),
+                                  Expanded(
+                                    flex: 1,
+                                    child: _buildSortableHeader('No', null),
+                                  ),
+                                  Expanded(
+                                    flex: 3,
+                                    child: _buildSortableHeader(
+                                      'Nama Lengkap',
+                                      'nama',
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildSortableHeader(
+                                      'Status',
+                                      'status',
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildSortableHeader(
+                                      'Username',
+                                      'username',
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildHeaderCell('Password'),
+                                  ),
+                                  Expanded(
+                                    flex: 4,
+                                    child: _buildSortableHeader(
+                                      'Email',
+                                      'email',
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildHeaderCell('Telepon'),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildHeaderCell('Aksi'),
+                                  ),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Expanded(
+                            SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.5,
                               child: ListView(
-                                children: currentUsers.asMap().entries.map((entry) {
-                                  final index = entry.key + 1;
-                                  final user = entry.value;
-                                  return MouseRegion(
-                                    cursor: SystemMouseCursors.click,
-                                    onEnter: (_) => setState(() => _hoveredRow = index),
-                                    onExit: (_) => setState(() => _hoveredRow = null),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(flex: 1, child: _buildDataCell("$index")),
-                                          Expanded(flex: 3, child: _buildDataCell(user.namaLengkap)),
-                                          Expanded(flex: 2, child: _buildDataCell(user.username)),
-                                          Expanded(flex: 2, child: _buildDataCell(user.status)),
-                                          Expanded(flex: 2, child: _buildDataCell(user.email)),
-                                          Expanded(flex: 2, child: _buildDataCell(user.telepon)),
-                                          Expanded(
-                                            flex: 2,
-                                            child: Container(
-                                              alignment: Alignment.center,
-                                              height: 48,
-                                              child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  IconButton(
-                                                    icon: const Icon(Icons.edit, size: 18, color: Color(0xFFEA2070)),
-                                                    onPressed: () => _editUser(user),
-                                                  ),
-                                                  IconButton(
-                                                    icon: const Icon(Icons.delete, size: 18, color: Color(0xFFEA2070)),
-                                                    onPressed: () => _deleteUser(user.docId),
-                                                  ),
-                                                ],
-                                              ),
+                                children: [
+                                  ..._currentUsers.asMap().entries.map((entry) {
+                                    final index = entry.key +
+                                        (_currentPage - 1) * _itemsPerPage;
+                                    final user = entry.value;
+                                    final rowKey = index;
+                                    return MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      onEnter: (_) =>
+                                          setState(() => _hoveredRow = rowKey),
+                                      onExit: (_) =>
+                                          setState(() => _hoveredRow = null),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 150),
+                                        decoration: BoxDecoration(
+                                          color: _hoveredRow == rowKey
+                                              ? Colors.grey.shade100
+                                              : Colors.transparent,
+                                          border: Border(
+                                            bottom: BorderSide(
+                                              color: Colors.grey.shade200,
                                             ),
                                           ),
-                                        ],
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              flex: 1,
+                                              child: _buildDataCell("${index + 1}"),
+                                            ),
+                                            Expanded(
+                                              flex: 3,
+                                              child: _buildDataCell(
+                                                user.namaLengkap,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              flex: 2,
+                                              child: _buildDataCell(user.status),
+                                            ),
+                                            Expanded(
+                                              flex: 2,
+                                              child: _buildDataCell(
+                                                user.username,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              flex: 2,
+                                              child: _buildDataCell(
+                                                user.password,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              flex: 4,
+                                              child: _buildDataCell(user.email),
+                                            ),
+                                            Expanded(
+                                              flex: 2,
+                                              child: _buildDataCell(
+                                                user.telepon,
+                                              ),
+                                            ),
+                                            Expanded(
+                                              flex: 2,
+                                              child: Container(
+                                                alignment: Alignment.center,
+                                                height: 48,
+                                                padding: const EdgeInsets.symmetric(
+                                                  vertical: 8,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  border: Border(
+                                                    left: BorderSide(
+                                                      color: Colors.grey.shade300,
+                                                      width: 1,
+                                                    ),
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: [
+                                                    IconButton(
+                                                      icon: const Icon(
+                                                        Icons.edit,
+                                                        color: Color(0xFFEA2070),
+                                                        size: 18,
+                                                      ),
+                                                      onPressed: () => _editUser(user),
+                                                    ),
+                                                    IconButton(
+                                                      icon: const Icon(
+                                                        Icons.delete,
+                                                        color: Color(0xFFEA2070),
+                                                        size: 18,
+                                                      ),
+                                                      onPressed: () => _deleteUser(user.docId), // ✅ Gunakan docId
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                }).toList(),
+                                    );
+                                  }),
+                                ],
                               ),
                             ),
-                            if (totalPages > 1)
+                            if (_totalPages > 1) const SizedBox(height: 16),
+                            if (_totalPages > 1)
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('Halaman $_currentPage dari $totalPages'),
+                                  Text(
+                                    'Halaman $_currentPage dari $_totalPages',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
                                   Row(
                                     children: [
                                       IconButton(
-                                        icon: const Icon(Icons.chevron_left),
-                                        onPressed: _currentPage == 1 ? null : () => setState(() => _currentPage--),
+                                        icon: const Icon(Icons.chevron_left, size: 18),
+                                        onPressed: _currentPage == 1
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  _currentPage--;
+                                                });
+                                              },
+                                        color: _currentPage == 1
+                                            ? Colors.grey
+                                            : Colors.black,
                                       ),
+                                      const SizedBox(width: 12),
                                       IconButton(
-                                        icon: const Icon(Icons.chevron_right),
-                                        onPressed: _currentPage == totalPages ? null : () => setState(() => _currentPage++),
+                                        icon: const Icon(Icons.chevron_right, size: 18),
+                                        onPressed: _currentPage == _totalPages
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  _currentPage++;
+                                                });
+                                              },
+                                        color: _currentPage == _totalPages
+                                            ? Colors.grey
+                                            : Colors.black,
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
                           ],
-                        );
-                      },
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -680,8 +1258,55 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
       alignment: Alignment.center,
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade300, width: 1))),
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildSortableHeader(String label, String? sortBy) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          if (sortBy != null) {
+            _sortUsers(sortBy);
+          }
+        },
+        child: Container(
+          alignment: Alignment.center,
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: Colors.grey.shade300, width: 1),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              if (sortBy != null && _sortBy == sortBy)
+                Icon(
+                  _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 14,
+                  color: Colors.grey.shade600,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -690,8 +1315,60 @@ class _MenuAdminPageState extends State<MenuAdminPage> {
       alignment: Alignment.center,
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade300, width: 1))),
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
       child: Text(text, textAlign: TextAlign.center),
+    );
+  }
+
+  Widget _buildSidebarItem(
+    IconData icon,
+    String title,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setState(() => _hoveredItem = title),
+          onExit: (_) => setState(() => _hoveredItem = null),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _hoveredItem == title
+                  ? Colors.white12
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
+              splashColor: Colors.white30,
+              highlightColor: Colors.white10,
+              child: ListTile(
+                leading: Icon(icon, color: color, size: 20),
+                title: _isSidebarCollapsed
+                    ? null
+                    : Text(
+                        title,
+                        style: TextStyle(color: color, fontSize: 14),
+                      ),
+                dense: true,
+                horizontalTitleGap: 12,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

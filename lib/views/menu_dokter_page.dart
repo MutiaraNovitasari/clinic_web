@@ -1,4 +1,3 @@
-// lib/views/menu_dokter_page.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,7 +18,14 @@ class MenuDokterPage extends StatefulWidget {
 }
 
 class _MenuDokterPageState extends State<MenuDokterPage> {
+  // ✅ Navigasi (Disesuaikan dengan Resepsionis)
+  bool _isSidebarCollapsed = false;
+  String? _hoveredItem;
+  final Color menuColor = Colors.white;
+  String _currentView = 'Dashboard'; // Default view
+
   // ✅ Profil User
+  Uint8List? _profileImage; // Tambahkan untuk konsistensi
   String _userName = 'Dokter';
   bool _loading = true;
 
@@ -36,6 +42,10 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
   String? _selectedPasienId;
   String? _selectedRM;
 
+  // ✅ Laporan (Disesuaikan)
+  DateTime _filterDate = DateTime.now();
+  String _filterType = 'Harian';
+
   @override
   void initState() {
     super.initState();
@@ -50,14 +60,19 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
     super.dispose();
   }
 
-  // ✅ Load Nama Dokter
+  // ✅ Load Nama Dokter & Foto Profil
   Future<void> _loadUserData() async {
     final user = firebase.FirebaseAuth.instance.currentUser;
     if (user != null) {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (doc.exists) {
+        final data = doc.data();
         setState(() {
-          _userName = doc.data()?['nama'] ?? 'Dokter';
+          _userName = data?['nama'] ?? 'Dokter';
+          final imageBytes = data?['profileImage'];
+          if (imageBytes is List) {
+            _profileImage = Uint8List.fromList(imageBytes.map((e) => e as int).toList());
+          }
         });
       }
     }
@@ -66,7 +81,7 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
     });
   }
 
-  // ✅ Logout
+  // ✅ Logout (Sama seperti Resepsionis)
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -90,7 +105,7 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
     );
   }
 
-  // ✅ Cetak Resume Pemeriksaan (PDF)
+  // ✅ Cetak Resume Pemeriksaan (PDF) - Tetap sama
   Future<void> _printResume(Map<String, dynamic> data) async {
     final pdf = pw.Document();
 
@@ -139,7 +154,7 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
     );
   }
 
-  // ✅ Tampilkan Form Diagnosis & Resep
+  // ✅ Tampilkan Form Diagnosis & Resep - Tetap sama
   void _showDiagnosisForm(Map<String, dynamic> anamnesaData) {
     _selectedPasienId = anamnesaData['pasienId'];
     _selectedRM = anamnesaData['nomorRekamMedis'];
@@ -225,6 +240,396 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
     );
   }
 
+  // ✅ Hitung jumlah pasien hari ini
+  int _countPasienHariIni(List<QueryDocumentSnapshot> docs) {
+    final today = DateTime.now();
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final tanggal = (data['tanggalKunjungan'] as Timestamp).toDate();
+      return tanggal.day == today.day &&
+             tanggal.month == today.month &&
+             tanggal.year == today.year;
+    }).length;
+  }
+
+  // ✅ Build Content (Disesuaikan dengan Resepsionis)
+  Widget _buildContent() {
+    if (_currentView == 'Dashboard') {
+      return _buildDashboard();
+    } else if (_currentView == 'Riwayat Pemeriksaan') {
+      return _buildRiwayatPemeriksaan();
+    } else if (_currentView == 'Laporan') {
+      return _buildLaporan();
+    }
+    return _buildDashboard(); // fallback
+  }
+
+  // ✅ Dashboard View (Daftar Anamnesa Awal)
+  Widget _buildDashboard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Pemeriksaan Utama',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Poppins'),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Data pemeriksaan awal dari resepsionis',
+          style: TextStyle(fontSize: 14, color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+
+        // 🔍 Search
+        TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Cari Pasien (Nama/RM)...',
+            prefixIcon: const Icon(Icons.search),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          onChanged: (value) {
+            setState(() {
+              _searchQuery = value.toLowerCase();
+            });
+          },
+        ),
+        const SizedBox(height: 24),
+
+        // Daftar Anamnesa Awal
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('anamnesa_awal')
+                .orderBy('tanggalKunjungan', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(child: Text("Gagal memuat data pemeriksaan awal"));
+              }
+
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs = snapshot.data!.docs;
+
+              // 🔍 Filter berdasarkan search
+              final filtered = _searchQuery.isEmpty
+                  ? docs
+                  : docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      return (data['namaPasien'] as String).toLowerCase().contains(_searchQuery) ||
+                          (data['nomorRekamMedis'] as String).toLowerCase().contains(_searchQuery);
+                    }).toList();
+
+              if (filtered.isEmpty) {
+                return const Center(child: Text("Tidak ada data yang cocok"));
+              }
+
+              return ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 16),
+                itemBuilder: (context, index) {
+                  final data = filtered[index].data() as Map<String, dynamic>;
+                  final nama = data['namaPasien'] as String;
+                  final rm = data['nomorRekamMedis'] as String;
+                  final tanggalKunjungan = (data['tanggalKunjungan'] as Timestamp).toDate();
+                  final usia = data['usia'] ?? '-';
+                  final jenisKelamin = data['jenisKelamin'] ?? '-';
+
+                  return Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header Pasien
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(nama, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                    Text('RM: $rm', style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                                    Text('Usia: $usia | JK: $jenisKelamin', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                DateFormat('dd MMM yyyy, HH:mm').format(tanggalKunjungan),
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Tanda Vital
+                          const Text('Tanda Vital', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 8),
+                          _buildDataRow('Tekanan Darah', '${data['tekananDarah']} mmHg'),
+                          _buildDataRow('Suhu Tubuh', '${data['suhuTubuh']} °C'),
+                          _buildDataRow('Tinggi Badan', '${data['tinggiBadan']} cm'),
+                          _buildDataRow('Berat Badan', '${data['beratBadan']} kg'),
+                          const SizedBox(height: 16),
+
+                          // Action Buttons
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton.icon(
+                                onPressed: () => _printResume(data),
+                                icon: const Icon(Icons.print, size: 16),
+                                label: const Text('Cetak Resume', style: TextStyle(color: Colors.blue)),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
+                                onPressed: () => _showDiagnosisForm(data),
+                                icon: const Icon(Icons.edit_note, size: 16, color: Colors.white),
+                                label: const Text('Diagnosis', style: TextStyle(color: Colors.white)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ Riwayat Pemeriksaan View (Dummy - Bisa dikembangkan)
+  Widget _buildRiwayatPemeriksaan() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Riwayat Pemeriksaan',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('resep_obat') // Ambil dari koleksi resep
+              .orderBy('tanggal', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text("Error: ${snapshot.error}"));
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.data!.docs.isEmpty) {
+              return const Center(child: Text("Belum ada riwayat pemeriksaan."));
+            }
+
+            final docs = snapshot.data!.docs;
+
+            return Expanded(
+              child: ListView.builder(
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final data = docs[index].data() as Map<String, dynamic>;
+                  final tanggal = (data['tanggal'] as Timestamp).toDate();
+
+                  return Card(
+                    child: ListTile(
+                      title: Text(data['namaPasien']),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Diagnosis: ${data['diagnosis']}'),
+                          Text('Resep: ${data['resep']}'),
+                          Text(DateFormat('dd MMM yyyy, HH:mm').format(tanggal)),
+                        ],
+                      ),
+                      trailing: Text(data['dokter']),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ✅ Laporan View (Disesuaikan dengan Resepsionis)
+  Widget _buildLaporan() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Laporan Kunjungan Pasien', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            DropdownButton<String>(
+              value: _filterType,
+              items: ['Harian', 'Bulanan', 'Tahunan'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (value) => setState(() => _filterType = value!),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _filterDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (date != null) {
+                  setState(() => _filterDate = date);
+                }
+              },
+              icon: const Icon(Icons.calendar_today),
+              label: Text(DateFormat('dd/MM/yyyy').format(_filterDate)),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () async {
+                // Ambil data dari anamnesa_awal
+                final snapshot = await FirebaseFirestore.instance.collection('anamnesa_awal').get();
+                final data = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+                final filtered = data.where((item) {
+                  final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                  if (_filterType == 'Harian') {
+                    return date.day == _filterDate.day && date.month == _filterDate.month && date.year == _filterDate.year;
+                  } else if (_filterType == 'Bulanan') {
+                    return date.month == _filterDate.month && date.year == _filterDate.year;
+                  } else {
+                    return date.year == _filterDate.year;
+                  }
+                }).toList();
+
+                // Buat PDF
+                final pdf = pw.Document();
+                pdf.addPage(pw.Page(build: (context) => pw.Column(
+                  children: [
+                    pw.Text('Laporan Kunjungan ${_filterType}', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Periode: ${DateFormat('dd/MM/yyyy').format(_filterDate)}'),
+                    pw.SizedBox(height: 20),
+                    ...filtered.map((item) {
+                      final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                      return pw.Column(
+                        children: [
+                          pw.Text('Nama: ${item['namaPasien']}'),
+                          pw.Text('RM: ${item['nomorRekamMedis']}'),
+                          pw.Text('Keluhan: ${item['keluhan'] ?? '-'}'),
+                          pw.Text('Tanggal: ${DateFormat('dd/MM/yyyy HH:mm').format(date)}'),
+                          pw.Divider(),
+                        ],
+                      );
+                    }).toList(),
+                  ],
+                )));
+
+                await Printing.layoutPdf(onLayout: (_) => pdf.save());
+              },
+              icon: const Icon(Icons.print),
+              label: const Text("Cetak Laporan"),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('anamnesa_awal').orderBy('tanggalKunjungan', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return const Text("Gagal muat data");
+              if (!snapshot.hasData) return const CircularProgressIndicator();
+              final docs = snapshot.data!.docs;
+              final data = docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+              final filtered = data.where((item) {
+                final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                if (_filterType == 'Harian') {
+                  return date.day == _filterDate.day && date.month == _filterDate.month && date.year == _filterDate.year;
+                } else if (_filterType == 'Bulanan') {
+                  return date.month == _filterDate.month && date.year == _filterDate.year;
+                } else {
+                  return date.year == _filterDate.year;
+                }
+              }).toList();
+              return ListView(
+                children: filtered.map((item) {
+                  final date = (item['tanggalKunjungan'] as Timestamp).toDate();
+                  return ListTile(
+                    title: Text(item['namaPasien']),
+                    subtitle: Text("${item['keluhan'] ?? '-'} | ${DateFormat('dd/MM HH:mm').format(date)}"),
+                    trailing: Text(item['nomorRekamMedis']),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ Build Sidebar Item (Sama seperti Resepsionis)
+  Widget _buildSidebarItem(IconData icon, String title, Color color, {VoidCallback? onTap}) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hoveredItem = title),
+      onExit: (_) => setState(() => _hoveredItem = null),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _currentView = title;
+          });
+          onTap?.call();
+        },
+        borderRadius: BorderRadius.circular(8),
+        splashColor: Colors.white30,
+        highlightColor: Colors.white10,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: _hoveredItem == title ? Colors.white12 : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              if (!_isSidebarCollapsed) const SizedBox(width: 12),
+              if (!_isSidebarCollapsed) Text(title, style: TextStyle(color: color, fontSize: 14)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ Build Data Row (Helper)
+  Widget _buildDataRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+          Text(': $value', style: const TextStyle(fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -233,175 +638,86 @@ class _MenuDokterPageState extends State<MenuDokterPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Halo, $_userName', style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFEA2070),
+        title: Row(
+          children: [
+            IconButton(
+              icon: Icon(_isSidebarCollapsed ? Icons.menu_open : Icons.menu, color: Colors.white),
+              onPressed: () => setState(() => _isSidebarCollapsed = !_isSidebarCollapsed),
+            ),
+            const SizedBox(width: 8),
+            Text('Halo, $_userName', style: const TextStyle(color: Colors.white)),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: _showLogoutDialog,
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFFEA2070),
+                  child: _profileImage != null
+                      ? ClipOval(child: Image.memory(_profileImage!, width: 40, height: 40, fit: BoxFit.cover))
+                      : const Icon(Icons.person, color: Colors.white, size: 40),
+                ),
+                // Tidak ada tombol edit di sini untuk dokter, bisa ditambahkan jika perlu
+              ],
+            ),
           ),
         ],
+        backgroundColor: const Color(0xFFFF8DAA), // Warna AppBar disesuaikan
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Pemeriksaan Awal Pasien',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Poppins'),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Data pemeriksaan awal dari resepsionis',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-
-            // 🔍 Search
-            Row(
+      body: Row(
+        children: [
+          // SIDEBAR (Identik dengan Resepsionis)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: _isSidebarCollapsed ? 60 : 200,
+            color: const Color(0xFFFFB2D0), // Warna sidebar disesuaikan
+            child: Column(
               children: [
-                SizedBox(
-                  width: 300,
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Cari Pasien (Nama/RM)...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value.toLowerCase();
-                      });
-                    },
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                  child: Row(
+                    children: [
+                      Image.asset('assets/images/logo.png', width: 30, height: 30),
+                      if (!_isSidebarCollapsed) const SizedBox(width: 12),
+                      if (!_isSidebarCollapsed)
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Klinik Pratama', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+                              Text('Sakura Medical Center', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10)),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white30, height: 1),
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      _buildSidebarItem(Icons.home, 'Dashboard', menuColor),
+                      _buildSidebarItem(Icons.history, 'Riwayat Pemeriksaan', menuColor),
+                      _buildSidebarItem(Icons.description, 'Laporan', menuColor),
+                      _buildSidebarItem(Icons.logout, 'Sign Out', menuColor, onTap: _showLogoutDialog),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-
-            // Daftar Anamnesa Awal
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('anamnesa_awal')
-                    .orderBy('tanggalKunjungan', descending: true)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return const Center(child: Text("Gagal memuat data pemeriksaan awal"));
-                  }
-
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  final docs = snapshot.data!.docs;
-
-                  // 🔍 Filter berdasarkan search
-                  final filtered = _searchQuery.isEmpty
-                      ? docs
-                      : docs.where((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          return (data['namaPasien'] as String).toLowerCase().contains(_searchQuery) ||
-                              (data['nomorRekamMedis'] as String).toLowerCase().contains(_searchQuery);
-                        }).toList();
-
-                  if (filtered.isEmpty) {
-                    return const Center(child: Text("Tidak ada data yang cocok"));
-                  }
-
-                  return ListView.separated(
-                    itemCount: filtered.length,
-                    separatorBuilder: (context, index) => const Divider(height: 32),
-                    itemBuilder: (context, index) {
-                      final data = filtered[index].data() as Map<String, dynamic>;
-                      final nama = data['namaPasien'] as String;
-                      final rm = data['nomorRekamMedis'] as String;
-                      final tanggalKunjungan = (data['tanggalKunjungan'] as Timestamp).toDate();
-
-                      return Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(nama, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                      Text('RM: $rm', style: const TextStyle(color: Colors.grey, fontSize: 14)),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  DateFormat('dd MMM yyyy, HH:mm').format(tanggalKunjungan),
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            _buildDataRow('Tekanan Darah', '${data['tekananDarah']} mmHg'),
-                            _buildDataRow('Suhu Tubuh', '${data['suhuTubuh']} °C'),
-                            _buildDataRow('Tinggi Badan', '${data['tinggiBadan']} cm'),
-                            _buildDataRow('Berat Badan', '${data['beratBadan']} kg'),
-                            const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                TextButton(
-                                  onPressed: () => _printResume(data),
-                                  child: const Text('🖨️ Cetak Resume', style: TextStyle(color: Colors.blue)),
-                                ),
-                                const SizedBox(width: 8),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEA2070)),
-                                  onPressed: () => _showDiagnosisForm(data),
-                                  child: const Text('📝 Diagnosis', style: TextStyle(color: Colors.white)),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDataRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
           ),
-          Text(': $value', style: const TextStyle(fontSize: 14)),
+          // KONTEN UTAMA
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: _buildContent(),
+            ),
+          ),
         ],
       ),
     );

@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'menu_admin_page.dart';
 import 'menu_dokter_page.dart';
-import 'menu_resepsionis_page.dart'; // ✅ Tambahkan ini
+import 'menu_resepsionis_page.dart';
+import 'menu_apoteker_page.dart'; // ✅ Tambahkan import halaman apoteker
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -23,9 +24,9 @@ class _LoginPageState extends State<LoginPage> {
     String password = _passwordController.text.trim();
 
     if (username.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Semua field harus diisi")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Semua field harus diisi")),
+      );
       return;
     }
 
@@ -46,9 +47,9 @@ class _LoginPageState extends State<LoginPage> {
       final user = credential.user;
       if (user == null) {
         if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text("User tidak ditemukan")));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("User tidak ditemukan")),
+          );
           setState(() {
             _isLoading = false;
           });
@@ -56,7 +57,7 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // 🔍 Cek apakah user adalah Admin (cek di koleksi 'admins' berdasarkan UID)
+      // 🔍 Cek apakah user adalah Admin (berdasarkan UID)
       final adminDoc = await FirebaseFirestore.instance
           .collection('admins')
           .doc(user.uid)
@@ -94,7 +95,7 @@ class _LoginPageState extends State<LoginPage> {
       final userData = userDoc.docs.first.data();
       final status = userData['status'];
 
-      // 🔁 Arahkan sesuai role
+      // 🔁 Arahkan sesuai role — termasuk Apoteker
       if (context.mounted) {
         if (status == 'Dokter') {
           Navigator.pushReplacement(
@@ -104,9 +105,12 @@ class _LoginPageState extends State<LoginPage> {
         } else if (status == 'Resepsionis') {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(
-              builder: (context) => const MenuResepsionisPage(),
-            ),
+            MaterialPageRoute(builder: (context) => const MenuResepsionisPage()),
+          );
+        } else if (status == 'Apoteker') { // ✅ Tambahkan kondisi untuk Apoteker
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MenuApotekerPage()),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -131,9 +135,9 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Terjadi kesalahan")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Terjadi kesalahan")),
+        );
       }
     } finally {
       if (mounted) {
@@ -207,7 +211,7 @@ class _LoginPageState extends State<LoginPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          "Halo admin!",
+                          "Halo!",
                           style: TextStyle(
                             fontFamily: "Poppins",
                             fontWeight: FontWeight.bold,
@@ -225,7 +229,7 @@ class _LoginPageState extends State<LoginPage> {
                           controller: _usernameController,
                           decoration: InputDecoration(
                             hintText: "Username",
-                            prefixIcon: const Icon(Icons.person_outline),
+                            prefixIcon: Icon(Icons.person_outline),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(30),
                             ),
@@ -240,7 +244,7 @@ class _LoginPageState extends State<LoginPage> {
                           obscureText: true,
                           decoration: InputDecoration(
                             hintText: "Password",
-                            prefixIcon: const Icon(Icons.lock_outline),
+                            prefixIcon: Icon(Icons.lock_outline),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(30),
                             ),
@@ -262,9 +266,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             onPressed: _isLoading ? null : _login,
                             child: _isLoading
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
-                                  )
+                                ? const CircularProgressIndicator(color: Colors.white)
                                 : const Text(
                                     "Login",
                                     style: TextStyle(
