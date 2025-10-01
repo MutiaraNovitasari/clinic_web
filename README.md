@@ -1,6 +1,6 @@
 Clinic Web
 
-## 🇮🇩 Tentang Proyek (Bahasa Indonesia)
+## Tentang Proyek
 Proyek ini merupakan bagian dari **Kerja Praktik** yang dikerjakan oleh:  
 - Nitmala Putri 
 - Mutiara Novitasari  
