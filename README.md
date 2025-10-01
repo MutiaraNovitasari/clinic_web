@@ -1,20 +1,33 @@
-<<<<<<< HEAD
-# clinic_web
+Clinic Web
 
-A new Flutter project.
+## 🇮🇩 Tentang Proyek (Bahasa Indonesia)
+Proyek ini merupakan bagian dari **Kerja Praktik** yang dikerjakan oleh:  
+- Nitmala Putri 
+- Mutiara Novitasari  
 
-## Getting Started
+Dari Program Studi Informatika, Universitas Jenderal Achmad Yani.
 
-This project is a starting point for a Flutter application.
+### 📌 Deskripsi Proyek
+Clinic Web adalah aplikasi berbasis Flutter yang dikembangkan untuk mendukung digitalisasi layanan klinik.  
+Proyek ini menjadi salah satu implementasi nyata dari penerapan teknologi web modern untuk mendukung proses kerja praktik mahasiswa.
 
-A few resources to get you started if this is your first Flutter project:
+### 🚀 Teknologi yang Digunakan
+- Flutter (Frontend)  
+- Dart  
+- Firebase / MySQL (jika ada backend)  
+- GitHub (version control & kolaborasi)  
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### 📂 Struktur Proyek
+- `/lib` → Berisi source code utama aplikasi Flutter.  
+- `/assets` → Menyimpan aset seperti gambar dan ikon.  
+- `/config` → Konfigurasi database (jika digunakan).  
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
-=======
-# clinic_web
->>>>>>> 9a351761ba851595a9bcefa2051ec6a9bd37e74c
+### ⚡ Cara Menjalankan
+1. Clone repository ini:
+   git clone https://github.com/MutiaraNovitasari/clinic_web.git
+   
+2. Masuk ke folder proyek:
+cd clinic_web
+
+3. Jalankan aplikasi:
+flutter run
