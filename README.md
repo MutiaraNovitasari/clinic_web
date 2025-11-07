@@ -2,7 +2,7 @@ Clinic Web
 
 ## Tentang Proyek
 Proyek ini merupakan bagian dari **Kerja Praktik** yang dikerjakan oleh:  
-- Nitmala Putri 
+- Nirmala Putri 
 - Mutiara Novitasari  
 
 Dari Program Studi Informatika, Universitas Jenderal Achmad Yani.
